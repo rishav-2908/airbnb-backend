@@ -190,8 +190,8 @@ const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
     console.log(`Backend server running on http://localhost:${PORT}`);
     // console.log(`Backend server running on ${PORT}`);
-    // console.log(`API endpoints accessible at http://localhost:${PORT}/api`);
-    console.log(`API endpoints accessible at ${PORT}/api`);
+    console.log(`API endpoints accessible at http://localhost:${PORT}/api`);
+    // console.log(`API endpoints accessible at ${PORT}/api`);
 });
 
 if (DB_PATH) {
