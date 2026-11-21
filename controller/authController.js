@@ -1,34 +1,16 @@
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const User = require('../models/user');
 
-const getJwtSecret = () => {
-    if (!process.env.JWT_SECRET) {
-        throw new Error('JWT_SECRET environment variable is not configured');
-    }
-    return process.env.JWT_SECRET;
-};
-
-const issueToken = (user) => jwt.sign(
-    { sub: user._id.toString(), userType: user.userType },
-    getJwtSecret(),
-    { expiresIn: '7d', issuer: 'airbnb-api', audience: 'airbnb-web' }
-);
-
+// Helper to get active user from session or header
 const getActiveUser = async (req) => {
-    const authorization = req.headers.authorization;
-    if (!authorization || !authorization.startsWith('Bearer ')) return null;
-
-    try {
-        const payload = jwt.verify(
-            authorization.slice(7),
-            getJwtSecret(),
-            { issuer: 'airbnb-api', audience: 'airbnb-web' }
-        );
-        return await User.findById(payload.sub);
-    } catch (err) {
-        return null;
+    if (req.session && req.session.user && req.session.user._id) {
+        return await User.findById(req.session.user._id);
     }
+    const headerUserId = req.headers['x-user-id'];
+    if (headerUserId) {
+        return await User.findById(headerUserId);
+    }
+    return null;
 };
 
 exports.getActiveUser = getActiveUser;
@@ -106,6 +88,11 @@ exports.signup = async (req, res, next) => {
             userType: savedUser.userType
         };
 
+        if (req.session) {
+            req.session.isLoggedIn = true;
+            req.session.user = JSON.parse(JSON.stringify(savedUser));
+        }
+
         return res.status(201).json({
             success: true,
             message: 'User registered successfully',
@@ -162,12 +149,16 @@ exports.login = async (req, res, next) => {
             profilePic: user.profilePic || ''
         };
 
-        const token = issueToken(user);
+        if (req.session) {
+            req.session.isLoggedIn = true;
+            req.session.user = JSON.parse(JSON.stringify(user));
+            await new Promise((resolve) => req.session.save(resolve));
+        }
+
         return res.status(200).json({
             success: true,
             message: 'Logged in successfully',
-            user: userResponse,
-            token
+            user: userResponse
         });
     } catch (err) {
         console.error('API Login Error:', err);
