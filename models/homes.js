@@ -1,6 +1,12 @@
 const mongoose= require('mongoose');
 
 const homeSchema= mongoose.Schema({
+    owner: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+        index: true
+    },
     houseName: {
         type: String,
         required: true

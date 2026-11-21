@@ -4,6 +4,8 @@ const bodyParser = require('body-parser');
 const multer = require('multer');
 const session = require('express-session');
 const MongoDBStore = require('connect-mongodb-session')(session);
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 require('dotenv').config();
 
@@ -16,20 +18,29 @@ const rootDir = require('./utils/pathUtil');
 const { default: mongoose } = require('mongoose');
 
 const app = express();
+if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET environment variable is not configured');
+}
+app.set('trust proxy', 1);
+app.use(helmet());
 
-// Enable CORS for frontend and external clients
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:3000')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
+
 app.use((req, res, next) => {
     const origin = req.headers.origin;
-    if (origin) {
+    if (origin && allowedOrigins.includes(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
-    } else {
-        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Vary', 'Origin');
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-user-id');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
+        if (!origin || allowedOrigins.includes(origin)) return res.sendStatus(204);
+        return res.sendStatus(403);
     }
     next();
 });
@@ -65,7 +76,8 @@ const uploadFileFilter = (req, file, cb) => {
 
 const upload = multer({
     storage: multer.memoryStorage(),
-    fileFilter: uploadFileFilter
+    fileFilter: uploadFileFilter,
+    limits: { fileSize: 5 * 1024 * 1024, files: 3 }
 }).fields([
     { name: 'photo', maxCount: 1 },
     { name: 'profilePic', maxCount: 1 },
@@ -73,8 +85,8 @@ const upload = multer({
 ]);
 
 // Body parsers
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(upload);
 
 // Serve photos from MongoDB database buffer if stored there, fallback to disk
@@ -110,13 +122,20 @@ app.use('/host/uploads', express.static(path.join(rootDir, 'uploads')));
 app.use('/homes/uploads', express.static(path.join(rootDir, 'uploads')));
 
 // Session configuration
+if (!process.env.SESSION_SECRET) {
+    throw new Error('SESSION_SECRET environment variable is not configured');
+}
+
 app.use(session({
-    secret: process.env.SESSION_SECRET || "Code with Rishav Singh",
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    store: store,
+    store,
     cookie: {
-        maxAge: 1000 * 60 * 60 * 24 * 7 // 1 week
+        maxAge: 1000 * 60 * 60 * 24 * 7,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax'
     }
 }));
 
@@ -171,7 +190,16 @@ app.get('/api', (req, res) => {
     });
 });
 
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 20,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false
+});
+
 // Mount API Routers
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/signup', authLimiter);
 app.use('/api/auth', authRouter);
 app.use('/api/host', hostRouter);
 app.use('/api', storeRouter);

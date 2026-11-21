@@ -465,10 +465,6 @@ exports.updateProfile = async (req, res, next) => {
 
         await user.save();
 
-        if (req.session) {
-            req.session.user = JSON.parse(JSON.stringify(user));
-        }
-
         const userResponse = user.toObject();
         delete userResponse.password;
         delete userResponse.profilePicBuffer;
